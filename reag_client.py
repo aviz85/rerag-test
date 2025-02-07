@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
-from litellm import acompletion
+from openai import AsyncOpenAI
 
 class Document(BaseModel):
     name: str
@@ -13,10 +13,21 @@ class Response(BaseModel):
     is_irrelevant: bool
     document: Document
 
+OPENROUTER_MODELS = [
+    "google/gemini-2.0-flash-001",
+    "anthropic/claude-3.5-sonnet",
+    "openai/gpt-4o-2024-11-20",
+    "cohere/command-r-plus-08-2024",
+    "x-ai/grok-2-1212"
+]
+
 class ReagClient:
-    def __init__(self, model: str, api_base: Optional[str] = None, system: Optional[str] = None):
+    def __init__(self, model: str, api_base: Optional[str] = None, system: Optional[str] = None, api_key: Optional[str] = None):
         self.model = model
-        self.api_base = api_base
+        self.client = AsyncOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key
+        )
         self.system = system or ""
         
     async def __aenter__(self):
@@ -40,16 +51,21 @@ Is Irrelevant: <true/false>
 Document Used: <document name>
 """
         
-        response = await acompletion(
+        messages = []
+        if self.system:
+            messages.append({"role": "system", "content": self.system})
+        messages.append({"role": "user", "content": prompt})
+        
+        completion = await self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "system", "content": self.system} if self.system else None,
-                {"role": "user", "content": prompt}
-            ],
-            api_base=self.api_base
+            messages=messages,
+            extra_headers={
+                "HTTP-Referer": "https://github.com/superagent-ai/reag",
+                "X-Title": "ReAG Demo",
+            }
         )
         
-        content = response.choices[0].message.content
+        content = completion.choices[0].message.content
         parts = content.split('\n')
         
         content_text = next((p.replace('Content:', '').strip() for p in parts if p.startswith('Content:')), '')
